@@ -1,8 +1,7 @@
 # Mostly copied from Neel Nanda's TransformerLens.
 
 import logging
-# TODO remove wildcard import
-from functools import *
+from functools import lru_cache
 from typing import Dict, Optional, Tuple, Union
 
 import einops
