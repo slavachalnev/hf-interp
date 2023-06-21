@@ -1,4 +1,4 @@
-# mostly copied from Neel Nanda's TransformerLens.
+# Mostly copied from Neel Nanda's TransformerLens.
 
 import logging
 # TODO remove wildcard import
