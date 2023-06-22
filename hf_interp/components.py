@@ -25,7 +25,7 @@ class Embed(nn.Module):
     def __init__(self, cfg: Union[Dict, HookedTransformerConfig]):
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.W_E: Float[torch.Tensor, "d_vocab d_model"] = nn.Parameter(
             torch.empty(self.cfg.d_vocab, self.cfg.d_model)
@@ -43,7 +43,7 @@ class Unembed(nn.Module):
     def __init__(self, cfg: Union[Dict, HookedTransformerConfig]):
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         # Note that there's a separate variable for d_vocab_out and d_vocab (the input vocab size). For language tasks these are always the same, but for algorithmic tasks we may want them to be different.
         self.W_U: Float[torch.Tensor, "d_model d_vocab_out"] = nn.Parameter(
@@ -71,7 +71,7 @@ class PosEmbed(nn.Module):
     def __init__(self, cfg: Union[Dict, HookedTransformerConfig]):
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.W_pos = nn.Parameter(torch.empty(self.cfg.n_ctx, self.cfg.d_model))
 
@@ -102,7 +102,7 @@ class TokenTypeEmbed(nn.Module):
     def __init__(self, cfg: Union[Dict, HookedTransformerConfig]):
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.W_token_type = nn.Parameter(torch.empty(2, self.cfg.d_model))
 
@@ -118,7 +118,7 @@ class BertEmbed(nn.Module):
     def __init__(self, cfg: Union[Dict, HookedTransformerConfig]):
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.embed = Embed(cfg)
         self.pos_embed = PosEmbed(cfg)
@@ -162,7 +162,7 @@ class BertMLMHead(nn.Module):
     def __init__(self, cfg: Union[Dict, HookedTransformerConfig]):
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.W = nn.Parameter(torch.empty(cfg.d_model, cfg.d_model))
         self.b = nn.Parameter(torch.zeros(cfg.d_model))
@@ -196,7 +196,7 @@ class LayerNormPre(nn.Module):
         should only be used in inference mode after folding in LayerNorm weights"""
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.eps = self.cfg.eps
 
@@ -234,7 +234,7 @@ class LayerNorm(nn.Module):
         """
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.eps = self.cfg.eps
         if length is None:
@@ -273,7 +273,7 @@ class RMSNormPre(nn.Module):
         """RMSNormPre - LayerNormPre without the centering and bias (RMS = Root Mean Square)"""
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.eps = self.cfg.eps
 
@@ -301,7 +301,7 @@ class RMSNorm(nn.Module):
         """
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.eps = self.cfg.eps
         if length is None:
@@ -344,7 +344,7 @@ class Attention(nn.Module):
         """
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.W_Q = nn.Parameter(
             torch.empty(self.cfg.n_heads, self.cfg.d_model, self.cfg.d_head)
@@ -690,7 +690,7 @@ class MLP(nn.Module):
     def __init__(self, cfg: Union[Dict, HookedTransformerConfig]):
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.W_in = nn.Parameter(torch.empty(self.cfg.d_model, self.cfg.d_mlp))
         self.b_in = nn.Parameter(torch.zeros(self.cfg.d_mlp))
@@ -751,7 +751,7 @@ class GatedMLP(nn.Module):
     def __init__(self, cfg: Union[Dict, HookedTransformerConfig]):
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         self.W_in = nn.Parameter(torch.empty(self.cfg.d_model, self.cfg.d_mlp))
         self.W_gate = nn.Parameter(torch.empty(self.cfg.d_model, self.cfg.d_mlp))
@@ -821,7 +821,7 @@ class TransformerBlock(nn.Module):
     def __init__(self, cfg: Union[Dict, HookedTransformerConfig], block_index):
         super().__init__()
         if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(cfg)
+            cfg = HookedTransformerConfig.from_dict(cfg)
         self.cfg = cfg
         if self.cfg.normalization_type == "LN":
             self.ln1 = LayerNorm(cfg)
