@@ -16,7 +16,7 @@ from typeguard import typeguard_ignore
 from hf_interp.factored_matrix import FactoredMatrix
 from hf_interp.hooks import HookPoint
 from hf_interp.config import HookedTransformerConfig
-from hf_interp.caching import HookedTransformerKeyValueCacheEntry
+from hf_interp.kv_caching import HookedTransformerKeyValueCacheEntry
 from hf_interp.utils import gelu_fast, gelu_new, solu
 
 
