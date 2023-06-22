@@ -16,7 +16,7 @@ class HookedTransformerKeyValueCacheEntry:
     def init_cache_entry(
         cls,
         cfg: HookedTransformerConfig,
-        device: torch.device,
+        device: torch.device = None,
         batch_size: int = 1,
     ):
         return cls(
