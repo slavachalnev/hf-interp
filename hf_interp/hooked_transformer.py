@@ -1,5 +1,6 @@
 import logging
 from functools import lru_cache
+import os
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, overload
 
 import einops
@@ -72,14 +73,6 @@ class HookedTransformer(HookedRootModule):
             If None, then the model cannot be passed strings, and d_vocab must be explicitly set.
         """
         super().__init__()
-        if isinstance(config, Dict):
-            config = HookedTransformerConfig(**config)
-        elif isinstance(config, str):
-            raise ValueError(
-                "Please pass in a config dictionary or HookedTransformerConfig object. If you want to load a "
-                "pretrained model, use HookedTransformer.from_pretrained() instead."
-            )
-        self.config = config
 
         if tokenizer is not None:
             self.set_tokenizer(tokenizer)
@@ -141,62 +134,10 @@ class HookedTransformer(HookedRootModule):
             )
         self.unembed = Unembed(self.config)
 
-        if self.config.init_weights:
-            self.init_weights()
-
         # Gives each module a parameter with its name (relative to this root module)
         # Needed for HookPoints to work
         self.setup()
 
-    @overload
-    def forward(
-        self,
-        input,
-        return_type: Literal["logits"],
-        loss_per_token: bool = False,
-        prepend_bos: bool = True,
-        stop_at_layer: Optional[int] = None,
-        past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> Loss:
-        ...
-
-    @overload
-    def forward(
-        self,
-        input,
-        return_type: Literal["loss"],
-        loss_per_token: bool = False,
-        prepend_bos: bool = True,
-        stop_at_layer: Optional[int] = None,
-        past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> Loss:
-        ...
-
-    @overload
-    def forward(
-        self,
-        input,
-        return_type: Literal["both"],
-        loss_per_token: bool = False,
-        prepend_bos: bool = True,
-        stop_at_layer: Optional[int] = None,
-        past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> Tuple[Float[torch.Tensor, "batch pos d_vocab"], Loss]:
-        ...
-
-    @overload
-    def forward(
-        self,
-        input,
-        return_type: Literal[None],
-        loss_per_token: bool = False,
-        prepend_bos: bool = True,
-        stop_at_layer: Optional[int] = None,
-        past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> None:
-        ...
-
-    # TODO make sure type assertions are provided
     def forward(
         self,
         input: Union[str, List[str], Int[torch.Tensor, "batch pos"]],
@@ -395,6 +336,11 @@ class HookedTransformer(HookedRootModule):
             return out, cache
         else:
             return out, cache_dict
+    
+    @classmethod
+    def from_pretrained(cls, model_name, *model_args, **kwargs):
+        
+        return super().from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
 
     def set_tokenizer(self, tokenizer):
         """

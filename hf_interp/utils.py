@@ -1,4 +1,5 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
+import inspect
 import re
 import numpy as np
 import torch
@@ -169,3 +170,47 @@ def lm_cross_entropy_loss(
         return -predicted_log_probs
     else:
         return -predicted_log_probs.mean()
+
+
+def select_compatible_kwargs(
+    kwargs_dict: Dict[str, Any], callable: Callable
+) -> Dict[str, Any]:
+    """Return a dict with the elements kwargs_dict that are parameters of callable"""
+    return {
+        k: v
+        for k, v in kwargs_dict.items()
+        if k in inspect.getfullargspec(callable).args
+    }
+
+
+def download_file_from_hf(
+    repo_name,
+    file_name,
+    subfolder=".",
+    cache_dir=CACHE_DIR,
+    force_is_torch=False,
+    **kwargs,
+):
+    """
+    Helper function to download files from the HuggingFace Hub, from subfolder/file_name in repo_name, saving locally to cache_dir and returning the loaded file (if a json or Torch object) and the file path otherwise.
+
+    If it's a Torch file without the ".pth" extension, set force_is_torch=True to load it as a Torch object.
+    """
+    file_path = hf_hub_download(
+        repo_id=repo_name,
+        filename=file_name,
+        subfolder=subfolder,
+        cache_dir=cache_dir,
+        **select_compatible_kwargs(kwargs, hf_hub_download),
+    )
+
+    # Load to the CPU device if CUDA is not available
+    map_location = None if torch.cuda.is_available() else torch.device("cpu")
+
+    if file_path.endswith(".pth") or force_is_torch:
+        return torch.load(file_path, map_location=map_location)
+    elif file_path.endswith(".json"):
+        return json.load(open(file_path, "r"))
+    else:
+        print("File type not supported:", file_path.split(".")[-1])
+        return file_path
