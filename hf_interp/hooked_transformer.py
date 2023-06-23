@@ -14,7 +14,7 @@ from typeguard import typeguard_ignore
 from typing_extensions import Literal
 
 # import transformer_lens.loading_from_pretrained as loading
-import transformer_lens.utils as utils
+import hf_interp.utils as utils
 from hf_interp.config import HookedTransformerConfig
 from hf_interp.activation_cache import ActivationCache
 from hf_interp.components import (
@@ -32,7 +32,6 @@ from hf_interp.hooks import HookedRootModule, HookPoint
 
 # Note - activation cache is used with run_with_cache, past_key_value_caching is used for generation.
 from hf_interp.kv_caching import HookedTransformerKeyValueCache
-from transformer_lens.utilities import devices
 
 SingleLoss = Float[torch.Tensor, ""]  # Type alias for a single element tensor
 LossPerToken = Float[torch.Tensor, "batch pos-1"]
@@ -55,6 +54,8 @@ class HookedTransformer(HookedRootModule):
     HookedTransformerConfig object.
     """
 
+    # TODO: Add generate method.
+
     def __init__(
         self,
         cfg,
@@ -69,9 +70,6 @@ class HookedTransformer(HookedRootModule):
         tokenizer (*optional): The tokenizer to use for the model. If not
             provided, it is inferred from cfg.tokenizer_name or initialized to None.
             If None, then the model cannot be passed strings, and d_vocab must be explicitly set.
-        move_to_device (bool): Whether to move the model to the device specified in cfg.
-            device. Must be true if `n_devices` in the config is greater than 1, since the model's layers
-            will be split across multiple devices.
         """
         super().__init__()
         if isinstance(cfg, Dict):
@@ -247,8 +245,6 @@ class HookedTransformer(HookedRootModule):
         if len(tokens.shape) == 1:
             # If tokens are a rank 1 tensor, add a dummy batch dimension to avoid things breaking.
             tokens = tokens[None]
-        if tokens.device.type != self.cfg.device:
-            tokens = tokens.to(devices.get_device_for_block_index(0, self.cfg))
 
         # If we're doing caching, then we reuse keys and values from previous runs, as that's the only
         # way that past activations will affect the final logits. The cache contains those so we don't
@@ -314,11 +310,6 @@ class HookedTransformer(HookedRootModule):
             # Note that each block includes skip connections, so we don't need
             # residual + block(residual)
             # If we're using multiple GPUs, we need to send the residual and shortformer_pos_embed to the correct GPU
-            residual = residual.to(devices.get_device_for_block_index(i, self.cfg))
-            if shortformer_pos_embed is not None:
-                shortformer_pos_embed = shortformer_pos_embed.to(
-                    devices.get_device_for_block_index(i, self.cfg)
-                )
 
             residual = block(
                 residual,
@@ -342,6 +333,7 @@ class HookedTransformer(HookedRootModule):
                 return logits
             else:
                 loss = self.loss_fn(logits, tokens, per_token=loss_per_token)
+
                 if return_type == "loss":
                     return loss
                 elif return_type == "both":
@@ -356,6 +348,8 @@ class HookedTransformer(HookedRootModule):
         tokens: Int[torch.Tensor, "batch pos"],
         per_token: bool = False,
     ):
+        # TODO: Just call utils.lm_cross_entropy_loss directly
+
         """
         Wrapper around utils.lm_cross_entropy_loss, used in forward() with return_type=="loss" or "both".
         """
@@ -429,7 +423,6 @@ class HookedTransformer(HookedRootModule):
         self,
         input: Union[str, List[str]],
         prepend_bos: bool = True,
-        move_to_device: bool = True,
         truncate: bool = True,
     ) -> Int[torch.Tensor, "batch pos"]:
         """
@@ -439,7 +432,6 @@ class HookedTransformer(HookedRootModule):
         Args:
             input (Union[str, List[str]]). The input to tokenize
             prepend_bos (bool): Whether to prepend a beginning of sequence token. Defaults to True
-            move_to_device (bool): Whether to move the output tensor of tokens to the device the model lives on.
             Defaults to True
             truncate (bool): If the output tokens are too long, whether to truncate the output tokens to the model's
             max context window. Does nothing for shorter inputs. Defaults to True.
@@ -468,8 +460,6 @@ class HookedTransformer(HookedRootModule):
             if self.tokenizer.name_or_path.startswith("facebook/opt")
             else True,  # As we manually add the BOS token
         )["input_ids"]
-        if move_to_device:
-            tokens = tokens.to(self.cfg.device)
         return tokens
 
     def tokens_to_residual_directions(
