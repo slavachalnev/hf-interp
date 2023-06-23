@@ -38,7 +38,7 @@ class HookedTransformerConfig(PretrainedConfig):
         attn_only: bool = False,
         seed: Optional[int] = None,
         initializer_range: float = -1.0,  ###
-        init_weights: bool = True,  ###
+        # init_weights: bool = True,  ###
         scale_attn_by_inverse_layer_idx: bool = False,
         positional_embedding_type: str = "standard",
         final_rms: bool = False,
@@ -82,7 +82,7 @@ class HookedTransformerConfig(PretrainedConfig):
         self.attn_only = attn_only
         self.seed = seed
         self.initializer_range = initializer_range  ###
-        self.init_weights = init_weights  ###
+        # self.init_weights = init_weights  ###
         self.scale_attn_by_inverse_layer_idx = scale_attn_by_inverse_layer_idx
         self.positional_embedding_type = positional_embedding_type
         self.final_rms = final_rms

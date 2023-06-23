@@ -58,90 +58,90 @@ class HookedTransformer(HookedRootModule):
 
     def __init__(
         self,
-        cfg,
+        config,
         tokenizer=None,
     ):
         """
         Model initialization. Note that if you want to load the model from pretrained weights, you should use the
         HookedTransformer.from_pretrained() class method instead of this one.
 
-        cfg Union[HookedTransformerConfig, Dict]: The config to use for the
+        config Union[HookedTransformerConfig, Dict]: The config to use for the
             model.
         tokenizer (*optional): The tokenizer to use for the model. If not
-            provided, it is inferred from cfg.tokenizer_name or initialized to None.
+            provided, it is inferred from config.tokenizer_name or initialized to None.
             If None, then the model cannot be passed strings, and d_vocab must be explicitly set.
         """
         super().__init__()
-        if isinstance(cfg, Dict):
-            cfg = HookedTransformerConfig(**cfg)
-        elif isinstance(cfg, str):
+        if isinstance(config, Dict):
+            config = HookedTransformerConfig(**config)
+        elif isinstance(config, str):
             raise ValueError(
                 "Please pass in a config dictionary or HookedTransformerConfig object. If you want to load a "
                 "pretrained model, use HookedTransformer.from_pretrained() instead."
             )
-        self.cfg = cfg
+        self.config = config
 
         if tokenizer is not None:
             self.set_tokenizer(tokenizer)
-        elif self.cfg.tokenizer_name is not None:
+        elif self.config.tokenizer_name is not None:
             # If we have a tokenizer name, we can load it from HuggingFace
-            if "llama" in self.cfg.tokenizer_name:
+            if "llama" in self.config.tokenizer_name:
                 # llama tokenizer requires special handling
                 print("Warning: LLaMA tokenizer not loaded. Please load manually.")
             else:
                 self.set_tokenizer(
-                    AutoTokenizer.from_pretrained(self.cfg.tokenizer_name)
+                    AutoTokenizer.from_pretrained(self.config.tokenizer_name)
                 )
         else:
             # If no tokenizer name is provided, we assume we're training on an algorithmic task and will pass in tokens
             # directly. In this case, we don't need a tokenizer.
             assert (
-                self.cfg.d_vocab != -1
+                self.config.d_vocab != -1
             ), "Must provide a tokenizer if d_vocab is not provided"
             self.tokenizer = None
 
-        self.embed = Embed(self.cfg)
+        self.embed = Embed(self.config)
         self.hook_embed = HookPoint()  # [batch, pos, d_model]
 
-        if self.cfg.positional_embedding_type != "rotary":
-            self.pos_embed = PosEmbed(self.cfg)
+        if self.config.positional_embedding_type != "rotary":
+            self.pos_embed = PosEmbed(self.config)
             self.hook_pos_embed = HookPoint()  # [batch, pos, d__dictmodel]
 
-        if self.cfg.use_hook_tokens:
+        if self.config.use_hook_tokens:
             self.hook_tokens = HookPoint()  # [batch, pos]
 
         self.blocks = nn.ModuleList(
             [
-                TransformerBlock(self.cfg, block_index)
-                for block_index in range(self.cfg.n_layers)
+                TransformerBlock(self.config, block_index)
+                for block_index in range(self.config.n_layers)
             ]
         )
 
-        if self.cfg.normalization_type == "RMS":
-            self.ln_final = RMSNorm(self.cfg)
-        elif self.cfg.normalization_type == "RMSPre":
-            self.ln_final = RMSNormPre(self.cfg)
-        elif self.cfg.normalization_type == "LN":
-            if self.cfg.final_rms:
-                self.ln_final = RMSNorm(self.cfg)
+        if self.config.normalization_type == "RMS":
+            self.ln_final = RMSNorm(self.config)
+        elif self.config.normalization_type == "RMSPre":
+            self.ln_final = RMSNormPre(self.config)
+        elif self.config.normalization_type == "LN":
+            if self.config.final_rms:
+                self.ln_final = RMSNorm(self.config)
             else:
-                self.ln_final = LayerNorm(self.cfg)
-        elif self.cfg.normalization_type == "LNPre":
+                self.ln_final = LayerNorm(self.config)
+        elif self.config.normalization_type == "LNPre":
             # We've folded in LayerNorm weights, so just need the center + scale parts
-            if self.cfg.final_rms:
-                self.ln_final = RMSNormPre(self.cfg)
+            if self.config.final_rms:
+                self.ln_final = RMSNormPre(self.config)
             else:
-                self.ln_final = LayerNormPre(self.cfg)
-        elif self.cfg.normalization_type is None:
+                self.ln_final = LayerNormPre(self.config)
+        elif self.config.normalization_type is None:
             # If it's None, don't create either layer
             pass
         else:
             logging.warning(
-                f"Invalid normalization_type passed in {self.cfg.normalization_type}"
+                f"Invalid normalization_type passed in {self.config.normalization_type}"
             )
-        self.unembed = Unembed(self.cfg)
+        self.unembed = Unembed(self.config)
 
-        if self.cfg.init_weights:
+        if self.config.init_weights:
             self.init_weights()
 
         # Gives each module a parameter with its name (relative to this root module)
@@ -263,23 +263,23 @@ class HookedTransformer(HookedRootModule):
                 d_head_in_cache,
             ) = past_kv_cache[0].past_keys.shape
             assert cached_batch_size == batch_size
-            assert num_heads_in_cache == self.cfg.n_heads
-            assert d_head_in_cache == self.cfg.d_head
+            assert num_heads_in_cache == self.config.n_heads
+            assert d_head_in_cache == self.config.d_head
             # If we want to generate from the empty string, we'd pass in an empty cache, so we need to handle that case
             assert (
                 cache_ctx_length == 0 or ctx_length == 1
             ), "Pass in one token at a time after loading cache"
             pos_offset = cache_ctx_length
-        if self.cfg.use_hook_tokens:
+        if self.config.use_hook_tokens:
             tokens = self.hook_tokens(tokens)
         embed = self.hook_embed(self.embed(tokens))  # [batch, pos, d_model]
-        if self.cfg.positional_embedding_type == "standard":
+        if self.config.positional_embedding_type == "standard":
             pos_embed = self.hook_pos_embed(
                 self.pos_embed(tokens, pos_offset)
             )  # [batch, pos, d_model]
             residual = embed + pos_embed  # [batch, pos, d_model]
             shortformer_pos_embed = None
-        elif self.cfg.positional_embedding_type == "shortformer":
+        elif self.config.positional_embedding_type == "shortformer":
             # If we're using shortformer style attention, we don't add the positional embedding to the residual stream.
             # See HookedTransformerConfig for details
             pos_embed = self.hook_pos_embed(
@@ -287,14 +287,14 @@ class HookedTransformer(HookedRootModule):
             )  # [batch, pos, d_model]
             residual = embed
             shortformer_pos_embed = pos_embed
-        elif self.cfg.positional_embedding_type == "rotary":
+        elif self.config.positional_embedding_type == "rotary":
             # Rotary doesn't use positional embeddings, instead they're applied when dot producting keys and queries.
             # See HookedTransformerConfig for details
             residual = embed
             shortformer_pos_embed = None
         else:
             raise ValueError(
-                f"Invalid positional_embedding_type passed in {self.cfg.positional_embedding_type}"
+                f"Invalid positional_embedding_type passed in {self.config.positional_embedding_type}"
             )
 
         if stop_at_layer is None:
@@ -323,7 +323,7 @@ class HookedTransformer(HookedRootModule):
             # When we stop at an early layer, we end here rather than doing further computation
             return None
 
-        if self.cfg.normalization_type is not None:
+        if self.config.normalization_type is not None:
             residual = self.ln_final(residual)  # [batch, pos, d_model]
         if return_type is None:
             return None
@@ -414,10 +414,10 @@ class HookedTransformer(HookedRootModule):
             self.tokenizer.bos_token = self.tokenizer.eos_token
 
         # Infer vocab size from tokenizer
-        if self.cfg.d_vocab == -1:
-            self.cfg.d_vocab = max(self.tokenizer.vocab.values()) + 1
-        if self.cfg.d_vocab_out == -1:
-            self.cfg.d_vocab_out = self.cfg.d_vocab
+        if self.config.d_vocab == -1:
+            self.config.d_vocab = max(self.tokenizer.vocab.values()) + 1
+        if self.config.d_vocab_out == -1:
+            self.config.d_vocab_out = self.config.d_vocab
 
     def to_tokens(
         self,
@@ -455,7 +455,7 @@ class HookedTransformer(HookedRootModule):
             return_tensors="pt",
             padding=True,
             truncation=truncate,
-            max_length=self.cfg.n_ctx if truncate else None,
+            max_length=self.config.n_ctx if truncate else None,
             add_special_tokens=False
             if self.tokenizer.name_or_path.startswith("facebook/opt")
             else True,  # As we manually add the BOS token
@@ -514,7 +514,7 @@ class HookedTransformer(HookedRootModule):
             residual_direction = self.W_U[:, token]
             return residual_direction
 
-    def init_weights(self):
+    def _init_weights(self):
         """
         Initialize weights matrices with a normal of std=initializer_range (default=0.02). This roughly follows the
         GPT-2 paper's scheme (but with truncation, and not halving the std for W_pos).
@@ -538,16 +538,16 @@ class HookedTransformer(HookedRootModule):
         https://arxiv.org/abs/2203.03466
         """
 
-        if self.cfg.seed is not None:
-            torch.manual_seed(self.cfg.seed)
+        if self.config.seed is not None:
+            torch.manual_seed(self.config.seed)
 
         for name, param in self.named_parameters():
             if "W_" in name:
-                nn.init.normal_(param, std=self.cfg.initializer_range)
+                nn.init.normal_(param, std=self.config.initializer_range)
 
     def all_head_labels(self):
         return [
             f"L{l}H{h}"
-            for l in range(self.cfg.n_layers)
-            for h in range(self.cfg.n_heads)
+            for l in range(self.config.n_layers)
+            for h in range(self.config.n_heads)
         ]
