@@ -128,8 +128,8 @@ class HookedRootModule(PreTrainedModel):
     A class building on transformers.PreTrainedModel to interface nicely with HookPoints
     """
 
-    def __init__(self, *args):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.is_caching = False
         self.context_level = 0
 

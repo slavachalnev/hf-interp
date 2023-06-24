@@ -712,8 +712,6 @@ def get_pretrained_model_config(
     checkpoint_index: Optional[int] = None,
     checkpoint_value: Optional[int] = None,
     fold_ln: bool = False,
-    device: Optional[str] = None,
-    n_devices: int = 1,
     **kwargs,
 ):
     """Returns the pretrained model config as an HookedTransformerConfig object.
@@ -735,9 +733,6 @@ def get_pretrained_model_config(
         fold_ln (bool, optional): Whether to fold the layer norm into the
             subsequent linear layers (see HookedTransformer.fold_layer_norm for
             details). Defaults to False.
-        device (str, optional): The device to load the model onto. By
-            default will load to CUDA if available, else CPU.
-        n_devices (int): The number of devices to split the model across. Defaults to 1.
         kwargs: Other optional arguments passed to HuggingFace's from_pretrained.
             Also given to other HuggingFace functions when compatible.
 
@@ -767,8 +762,6 @@ def get_pretrained_model_config(
         )
         fold_ln = False
 
-    if device is not None:
-        cfg_dict["device"] = device
     if fold_ln:
         if cfg_dict["normalization_type"] in ["LN", "LNPre"]:
             cfg_dict["normalization_type"] = "LNPre"
@@ -793,9 +786,6 @@ def get_pretrained_model_config(
             cfg_dict["checkpoint_index"] = checkpoint_labels.index(checkpoint_value)
     else:
         cfg_dict["from_checkpoint"] = False
-
-    cfg_dict["device"] = device
-    cfg_dict["n_devices"] = n_devices
 
     cfg = HookedTransformerConfig.from_dict(cfg_dict)
     return cfg
