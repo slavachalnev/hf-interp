@@ -74,7 +74,7 @@ class HookedTransformer(HookedRootModule):
             provided, it is inferred from config.tokenizer_name or initialized to None.
             If None, then the model cannot be passed strings, and d_vocab must be explicitly set.
         """
-        super().__init__()
+        super().__init__(config=config)
 
         if tokenizer is not None:
             self.set_tokenizer(tokenizer)
@@ -357,7 +357,7 @@ class HookedTransformer(HookedRootModule):
         # Load the config into an HookedTransformerConfig object. If loading from a
         # checkpoint, the config object will contain the information about the
         # checkpoint
-        cfg = loading.get_pretrained_model_config(
+        config = loading.get_pretrained_model_config(
             official_model_name,
             checkpoint_index=checkpoint_index,
             checkpoint_value=checkpoint_value,
@@ -365,7 +365,7 @@ class HookedTransformer(HookedRootModule):
             **kwargs,
         )
 
-        if cfg.positional_embedding_type == "shortformer":
+        if config.positional_embedding_type == "shortformer":
             if fold_ln:
                 logging.warning(
                     "You tried to specify fold_ln=True for a shortformer model, but this can't be done! Setting fold_"
@@ -388,10 +388,19 @@ class HookedTransformer(HookedRootModule):
         # Get the state dict of the model (ie a mapping of parameter names to tensors), processed to match the
         # HookedTransformer parameter names.
         state_dict = loading.get_pretrained_state_dict(
-            official_model_name, cfg, hf_model, **kwargs
+            official_model_name, config, hf_model, **kwargs
         )
 
-        return super().from_pretrained(*model_args, state_dict=state_dict, **kwargs)
+        print('hello')
+
+        return super().from_pretrained(
+            *model_args,
+            pretrained_model_name_or_path=None,
+            state_dict=state_dict,
+            # low_cpu_mem_usage=True,
+            config=config,
+            **kwargs
+            )
 
     def set_tokenizer(self, tokenizer):
         """
@@ -511,7 +520,7 @@ class HookedTransformer(HookedRootModule):
             residual_direction = self.W_U[:, token]
             return residual_direction
 
-    def _init_weights(self):
+    def _init_weights(self, module):
         """
         Initialize weights matrices with a normal of std=initializer_range (default=0.02). This roughly follows the
         GPT-2 paper's scheme (but with truncation, and not halving the std for W_pos).
@@ -535,10 +544,12 @@ class HookedTransformer(HookedRootModule):
         https://arxiv.org/abs/2203.03466
         """
 
+        print('in init weights')
+
         if self.config.seed is not None:
             torch.manual_seed(self.config.seed)
 
-        for name, param in self.named_parameters():
+        for name, param in module.named_parameters():
             if "W_" in name:
                 nn.init.normal_(param, std=self.config.initializer_range)
 
