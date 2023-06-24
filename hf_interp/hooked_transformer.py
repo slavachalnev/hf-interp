@@ -31,6 +31,8 @@ from hf_interp.components import (
 from hf_interp.factored_matrix import FactoredMatrix
 from hf_interp.hooks import HookedRootModule, HookPoint
 
+import hf_interp.load as loading
+
 # Note - activation cache is used with run_with_cache, past_key_value_caching is used for generation.
 from hf_interp.kv_caching import HookedTransformerKeyValueCache
 
@@ -338,9 +340,58 @@ class HookedTransformer(HookedRootModule):
             return out, cache_dict
     
     @classmethod
-    def from_pretrained(cls, model_name, *model_args, **kwargs):
-        
-        return super().from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
+    def from_pretrained(
+        cls,
+        model_name,
+        *model_args,
+        checkpoint_index = None,
+        checkpoint_value = None,
+        hf_model = None,
+        **kwargs
+    ):
+        fold_ln = False
+
+        # Get the model name used in HuggingFace, rather than the alias.
+        official_model_name = loading.get_official_model_name(model_name)
+
+        # Load the config into an HookedTransformerConfig object. If loading from a
+        # checkpoint, the config object will contain the information about the
+        # checkpoint
+        cfg = loading.get_pretrained_model_config(
+            official_model_name,
+            checkpoint_index=checkpoint_index,
+            checkpoint_value=checkpoint_value,
+            fold_ln=fold_ln,
+            **kwargs,
+        )
+
+        if cfg.positional_embedding_type == "shortformer":
+            if fold_ln:
+                logging.warning(
+                    "You tried to specify fold_ln=True for a shortformer model, but this can't be done! Setting fold_"
+                    "ln=False instead."
+                )
+                fold_ln = False
+            if center_unembed:
+                logging.warning(
+                    "You tried to specify center_unembed=True for a shortformer model, but this can't be done! "
+                    "Setting center_unembed=False instead."
+                )
+                center_unembed = False
+            if center_writing_weights:
+                logging.warning(
+                    "You tried to specify center_writing_weights=True for a shortformer model, but this can't be done! "
+                    "Setting center_writing_weights=False instead."
+                )
+                center_writing_weights = False
+
+        # Get the state dict of the model (ie a mapping of parameter names to tensors), processed to match the
+        # HookedTransformer parameter names.
+        state_dict = loading.get_pretrained_state_dict(
+            official_model_name, cfg, hf_model, **kwargs
+        )
+
+        return super().from_pretrained(*model_args, state_dict=state_dict, **kwargs)
 
     def set_tokenizer(self, tokenizer):
         """
