@@ -151,6 +151,9 @@ class HookedRootModule(PreTrainedModel):
             self.mod_dict[name] = module
             if "HookPoint" in str(type(module)):
                 self.hook_dict[name] = module
+    
+    def hook_points(self):
+        return self.hook_dict.values()
 
     def reset_hooks(self, level=None):
         for hp in self.hook_points():
