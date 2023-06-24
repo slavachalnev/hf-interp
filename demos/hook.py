@@ -8,5 +8,10 @@ def my_hook(value, hook):
 
 model = HookedTransformer.from_pretrained("gpt2-small")
 
-loss = model.run_with_hooks("Hello there", fwd_hooks=[("blocks.0.attn.hook_v", my_hook)], return_type='loss')
+loss = model.run_with_hooks(
+    "Hello there",
+    fwd_hooks=[("blocks.0.attn.hook_v", my_hook)],
+    return_type='loss',
+)
+
 print('loss', loss)

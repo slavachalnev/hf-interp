@@ -136,6 +136,9 @@ class HookedTransformer(HookedRootModule):
             )
         self.unembed = Unembed(self.config)
 
+        if self.config.init_weights:
+            self.apply(self.init_weights)
+
         # Gives each module a parameter with its name (relative to this root module)
         # Needed for HookPoints to work
         self.setup()
@@ -520,7 +523,7 @@ class HookedTransformer(HookedRootModule):
             residual_direction = self.W_U[:, token]
             return residual_direction
 
-    def _init_weights(self, module):
+    def init_weights(self, module):
         """
         Initialize weights matrices with a normal of std=initializer_range (default=0.02). This roughly follows the
         GPT-2 paper's scheme (but with truncation, and not halving the std for W_pos).
@@ -543,11 +546,6 @@ class HookedTransformer(HookedRootModule):
         The best paper I've found on transformer initialization is the muP paper, but haven't integrated those ideas yet:
         https://arxiv.org/abs/2203.03466
         """
-
-        print('in init weights')
-
-        if self.config.seed is not None:
-            torch.manual_seed(self.config.seed)
 
         for name, param in module.named_parameters():
             if "W_" in name:
