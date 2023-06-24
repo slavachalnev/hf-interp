@@ -1,10 +1,19 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
+from jaxtyping import Float, Int
+
 import inspect
 import re
+import json
+
 import numpy as np
 import torch
 import torch.nn.functional as F
-from jaxtyping import Float, Int
+
+import transformers
+from huggingface_hub import hf_hub_download
+
+
+CACHE_DIR = transformers.TRANSFORMERS_CACHE
 
 
 def gelu_new(
@@ -204,8 +213,7 @@ def download_file_from_hf(
         **select_compatible_kwargs(kwargs, hf_hub_download),
     )
 
-    # Load to the CPU device if CUDA is not available
-    map_location = None if torch.cuda.is_available() else torch.device("cpu")
+    map_location = torch.device("cpu")
 
     if file_path.endswith(".pth") or force_is_torch:
         return torch.load(file_path, map_location=map_location)
