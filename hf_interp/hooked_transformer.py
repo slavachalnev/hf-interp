@@ -397,6 +397,9 @@ class HookedTransformer(HookedRootModule):
         with tempfile.NamedTemporaryFile(delete=True) as tmp:
             # Save the state dict to a temporary file
             torch.save(state_dict, tmp.name)
+
+            del state_dict
+            
             # Load the model from the temporary file
             model = super().from_pretrained(
                 tmp.name,
