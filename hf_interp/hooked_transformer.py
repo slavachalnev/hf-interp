@@ -402,6 +402,8 @@ class HookedTransformer(HookedRootModule):
             official_model_name, config, hf_model, **kwargs
         )
 
+        state_dict = cls.add_missing_keys(state_dict)
+
         if fold_ln:
             state_dict = cls.fold_layer_norm(state_dict, config)
         if center_writing_weights:
@@ -425,6 +427,14 @@ class HookedTransformer(HookedRootModule):
             )
 
         return model
+    
+    @staticmethod
+    def add_missing_keys(state_dict: Dict[str, torch.Tensor]):
+        # make sure unembed.b_U is in state_dict
+        if "unembed.b_U" not in state_dict:
+            state_dict["unembed.b_U"] = torch.zeros(state_dict["unembed.W_U"].shape[1])
+
+        return state_dict
     
     @classmethod
     def _no_split_modules(cls):
@@ -612,6 +622,25 @@ class HookedTransformer(HookedRootModule):
             state_dict["unembed.b_U"] - state_dict["unembed.b_U"].mean()
         )
         return state_dict
+    
+    @classmethod
+    def from_pretrained_no_processing(
+        cls,
+        model_name: str,
+        fold_ln=False,
+        center_writing_weights=False,
+        center_unembed=False,
+        **from_pretrained_kwargs,
+    ):
+        """Wrapper for from_pretrained with all boolean flags related to simplifying the model set to False. Refer to
+        from_pretrained for details."""
+        return cls.from_pretrained(
+            model_name,
+            fold_ln=fold_ln,
+            center_writing_weights=center_writing_weights,
+            center_unembed=center_unembed,
+            **from_pretrained_kwargs,
+        )
 
     def set_tokenizer(self, tokenizer):
         """
@@ -765,3 +794,41 @@ class HookedTransformer(HookedRootModule):
             for l in range(self.config.n_layers)
             for h in range(self.config.n_heads)
         ]
+    
+    # Give access to all weights as properties.
+    @property
+    @typeguard_ignore
+    def W_U(self) -> Float[torch.Tensor, "d_model d_vocab"]:
+        """
+        Convenience to get the unembedding matrix (ie the linear map from the final residual stream to the output logits)
+        """
+        return self.unembed.W_U
+
+    @property
+    @typeguard_ignore
+    def b_U(self) -> Float[torch.Tensor, "d_vocab"]:
+        return self.unembed.b_U
+
+    @property
+    @typeguard_ignore
+    def W_E(self) -> Float[torch.Tensor, "d_vocab d_model"]:
+        """
+        Convenience to get the embedding matrix
+        """
+        return self.embed.W_E
+
+    @property
+    @typeguard_ignore
+    def W_pos(self) -> Float[torch.Tensor, "n_ctx d_model"]:
+        """
+        Convenience function to get the positional embedding. Only works on models with absolute positional embeddings!
+        """
+        return self.pos_embed.W_pos
+
+    @property
+    @typeguard_ignore
+    def W_E_pos(self) -> Float[torch.Tensor, "d_vocab+n_ctx d_model"]:
+        """
+        Concatenated W_E and W_pos. Used as a full (overcomplete) basis of the input space, useful for full QK and full OV circuits.
+        """
+        return torch.cat([self.W_E, self.W_pos], dim=0)
