@@ -352,8 +352,11 @@ class HookedTransformer(HookedRootModule):
         checkpoint_index = None,
         checkpoint_value = None,
         hf_model = None,
+        device_map = 'auto',
         **kwargs
     ):
+        """Loads a pretrained model from HuggingFace, and converts it to a HookedTransformer."""
+
         # Get the model name used in HuggingFace, rather than the alias.
         official_model_name = loading.get_official_model_name(model_name)
 
@@ -410,12 +413,18 @@ class HookedTransformer(HookedRootModule):
             # Load the model from the temporary file
             model = super().from_pretrained(
                 tmp.name,
-                low_cpu_mem_usage=True,
                 config=config,
+                low_cpu_mem_usage=True,
+                device_map=device_map,
                 **kwargs
             )
 
         return model
+    
+    @classmethod
+    def _no_split_modules(cls):
+        """Returns a list of modules that should not be split into multiple GPUs."""
+        return ["Embed", "Unembed", "PosEmbed", "TransformerBlock"]
     
     @staticmethod
     def fold_layer_norm(state_dict: Dict[str, torch.Tensor], config: HookedTransformerConfig):
