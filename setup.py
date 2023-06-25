@@ -6,7 +6,7 @@ setup(
     url='https://github.com/slavachalnev/hf-interp',
     author='Sviatoslav Chalnev',
     description='Hooked Transformer interpretability based on HuggingFace Transformers',
-    packages=find_packages(),
+    packages=find_packages(exclude=["tests*"]),
     install_requires=[
         "numpy",
         "torch",
@@ -15,5 +15,7 @@ setup(
         "einops",
         "fancy_einsum",
         "tqdm",
+        "jaxtyping",
+        "pytest"
     ],
 )
