@@ -358,10 +358,9 @@ class HookedTransformer(HookedRootModule):
     ):
         """Loads a pretrained model from HuggingFace, and converts it to a HookedTransformer."""
 
-        if device is not None:
-            # TODO: check device properly
-            if device == 'cpu':
-                device_map = {"": 'cpu'}
+        # TODO: check device properly
+        if device == 'cpu':
+            device_map = {"": 'cpu'}
 
         # Get the model name used in HuggingFace, rather than the alias.
         official_model_name = loading.get_official_model_name(model_name)
