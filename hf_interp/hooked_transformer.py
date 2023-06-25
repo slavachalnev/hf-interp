@@ -346,14 +346,14 @@ class HookedTransformer(HookedRootModule):
     def from_pretrained(
         cls,
         model_name,
-        *model_args,
+        fold_ln=True,
+        center_writing_weights=True,
+        center_unembed=True,
         checkpoint_index = None,
         checkpoint_value = None,
         hf_model = None,
         **kwargs
     ):
-        fold_ln = False
-
         # Get the model name used in HuggingFace, rather than the alias.
         official_model_name = loading.get_official_model_name(model_name)
 
@@ -394,6 +394,13 @@ class HookedTransformer(HookedRootModule):
             official_model_name, config, hf_model, **kwargs
         )
 
+        if fold_ln:
+            state_dict = cls.fold_layer_norm(state_dict, config)
+        if center_writing_weights:
+            state_dict = cls.center_writing_weights(state_dict, config)
+        if center_unembed:
+            state_dict = cls.center_unembed(state_dict, config)
+
         with tempfile.NamedTemporaryFile(delete=True) as tmp:
             # Save the state dict to a temporary file
             torch.save(state_dict, tmp.name)
@@ -403,13 +410,194 @@ class HookedTransformer(HookedRootModule):
             # Load the model from the temporary file
             model = super().from_pretrained(
                 tmp.name,
-                *model_args,
                 low_cpu_mem_usage=True,
                 config=config,
                 **kwargs
             )
 
         return model
+    
+    @staticmethod
+    def fold_layer_norm(state_dict: Dict[str, torch.Tensor], config: HookedTransformerConfig):
+        """Takes in a state dict from a pretrained model, formatted to be consistent with HookedTransformer but with
+        LayerNorm weights and biases. Folds these into the neighbouring weights. See further_comments.md for more details
+
+        Args:
+            state_dict (Dict[str, torch.Tensor]): State dict of pretrained model
+        """
+        for l in range(config.n_layers):
+            # Fold ln1 into attention - it's important to fold biases first,
+            # since biases depend on weights but not vice versa
+            # The various indexing is just to broadcast ln.b and ln.w along every axis other than d_model.
+            # Each weight matrix right multiplies.
+            # To fold in the bias, we use the W_ matrix to map it to the hidden space of the layer,
+            # so we need to sum along axis -2, which is the residual stream space axis.
+            state_dict[f"blocks.{l}.attn.b_Q"] = state_dict[f"blocks.{l}.attn.b_Q"] + (
+                state_dict[f"blocks.{l}.attn.W_Q"]
+                * state_dict[f"blocks.{l}.ln1.b"][None, :, None]
+            ).sum(-2)
+            state_dict[f"blocks.{l}.attn.b_K"] = state_dict[f"blocks.{l}.attn.b_K"] + (
+                state_dict[f"blocks.{l}.attn.W_K"]
+                * state_dict[f"blocks.{l}.ln1.b"][None, :, None]
+            ).sum(-2)
+            state_dict[f"blocks.{l}.attn.b_V"] = state_dict[f"blocks.{l}.attn.b_V"] + (
+                state_dict[f"blocks.{l}.attn.W_V"]
+                * state_dict[f"blocks.{l}.ln1.b"][None, :, None]
+            ).sum(-2)
+
+            state_dict[f"blocks.{l}.attn.W_Q"] = (
+                state_dict[f"blocks.{l}.attn.W_Q"]
+                * state_dict[f"blocks.{l}.ln1.w"][None, :, None]
+            )
+            state_dict[f"blocks.{l}.attn.W_K"] = (
+                state_dict[f"blocks.{l}.attn.W_K"]
+                * state_dict[f"blocks.{l}.ln1.w"][None, :, None]
+            )
+            state_dict[f"blocks.{l}.attn.W_V"] = (
+                state_dict[f"blocks.{l}.attn.W_V"]
+                * state_dict[f"blocks.{l}.ln1.w"][None, :, None]
+            )
+
+            # Finally, we center the weights reading from the residual stream. The output of the first
+            # part of the LayerNorm is mean 0 and standard deviation 1, so the mean of any input vector
+            # of the matrix doesn't matter and can be set to zero.
+            # Equivalently, the output of LayerNormPre is orthogonal to the vector of all 1s (because
+            # dotting with that gets the sum), so we can remove the component of the matrix parallel to this.
+            state_dict[f"blocks.{l}.attn.W_Q"] -= einops.reduce(
+                state_dict[f"blocks.{l}.attn.W_Q"],
+                "head_index d_model d_head -> head_index 1 d_head",
+                "mean",
+            )
+            state_dict[f"blocks.{l}.attn.W_K"] -= einops.reduce(
+                state_dict[f"blocks.{l}.attn.W_K"],
+                "head_index d_model d_head -> head_index 1 d_head",
+                "mean",
+            )
+            state_dict[f"blocks.{l}.attn.W_V"] -= einops.reduce(
+                state_dict[f"blocks.{l}.attn.W_V"],
+                "head_index d_model d_head -> head_index 1 d_head",
+                "mean",
+            )
+
+            del (
+                state_dict[f"blocks.{l}.ln1.w"],
+                state_dict[f"blocks.{l}.ln1.b"],
+            )
+
+            # Fold ln2 into MLP
+            if not config.attn_only:
+                state_dict[f"blocks.{l}.mlp.b_in"] = state_dict[
+                    f"blocks.{l}.mlp.b_in"
+                ] + (
+                    state_dict[f"blocks.{l}.mlp.W_in"]
+                    * state_dict[f"blocks.{l}.ln2.b"][:, None]
+                ).sum(
+                    -2
+                )
+                state_dict[f"blocks.{l}.mlp.W_in"] = (
+                    state_dict[f"blocks.{l}.mlp.W_in"]
+                    * state_dict[f"blocks.{l}.ln2.w"][:, None]
+                )
+
+                # Center the weights that read in from the LayerNormPre
+                state_dict[f"blocks.{l}.mlp.W_in"] -= einops.reduce(
+                    state_dict[f"blocks.{l}.mlp.W_in"],
+                    "d_model d_mlp -> 1 d_mlp",
+                    "mean",
+                )
+
+                del state_dict[f"blocks.{l}.ln2.w"], state_dict[f"blocks.{l}.ln2.b"]
+
+                if config.act_fn.startswith("solu"):
+                    # Fold ln3 into activation
+                    state_dict[f"blocks.{l}.mlp.b_out"] = state_dict[
+                        f"blocks.{l}.mlp.b_out"
+                    ] + (
+                        state_dict[f"blocks.{l}.mlp.W_out"]
+                        * state_dict[f"blocks.{l}.mlp.ln.b"][:, None]
+                    ).sum(
+                        -2
+                    )
+                    state_dict[f"blocks.{l}.mlp.W_out"] = (
+                        state_dict[f"blocks.{l}.mlp.W_out"]
+                        * state_dict[f"blocks.{l}.mlp.ln.w"][:, None]
+                    )
+
+                    # Center the weights that read in from the LayerNormPre
+                    state_dict[f"blocks.{l}.mlp.W_out"] -= einops.reduce(
+                        state_dict[f"blocks.{l}.mlp.W_out"],
+                        "d_mlp d_model -> 1 d_model",
+                        "mean",
+                    )
+                    del (
+                        state_dict[f"blocks.{l}.mlp.ln.w"],
+                        state_dict[f"blocks.{l}.mlp.ln.b"],
+                    )
+        # Fold ln_final into Unembed
+        if not config.final_rms:
+            # Dumb bug from my old SoLU training code, some models have RMSNorm instead of LayerNorm pre unembed.
+            state_dict[f"unembed.b_U"] = state_dict[f"unembed.b_U"] + (
+                state_dict[f"unembed.W_U"] * state_dict[f"ln_final.b"][:, None]
+            ).sum(dim=-2)
+            del state_dict[f"ln_final.b"]
+        state_dict[f"unembed.W_U"] = (
+            state_dict[f"unembed.W_U"] * state_dict[f"ln_final.w"][:, None]
+        )
+
+        # Center the weights that read in from the LayerNormPre
+        state_dict[f"unembed.W_U"] -= einops.reduce(
+            state_dict[f"unembed.W_U"], "d_model d_vocab -> 1 d_vocab", "mean"
+        )
+
+        del state_dict[f"ln_final.w"]
+        return state_dict
+
+    @staticmethod
+    def center_writing_weights(state_dict: Dict[str, torch.Tensor], config: HookedTransformerConfig):
+        """Centers the weights of the model that write to the residual stream - W_out, W_E, W_pos and W_out. This is
+        done by subtracting the mean of the weights from the weights themselves. This is done in-place. See
+        fold_layer_norm for more details."""
+        state_dict["embed.W_E"] = state_dict["embed.W_E"] - state_dict[
+            "embed.W_E"
+        ].mean(-1, keepdim=True)
+        if config.positional_embedding_type != "rotary":
+            state_dict["pos_embed.W_pos"] = state_dict["pos_embed.W_pos"] - state_dict[
+                "pos_embed.W_pos"
+            ].mean(-1, keepdim=True)
+        for l in range(config.n_layers):
+            state_dict[f"blocks.{l}.attn.W_O"] = state_dict[
+                f"blocks.{l}.attn.W_O"
+            ] - state_dict[f"blocks.{l}.attn.W_O"].mean(
+                -1, keepdim=True
+            )  # W_O is [head_index, d_model, d_head]
+            state_dict[f"blocks.{l}.attn.b_O"] = (
+                state_dict[f"blocks.{l}.attn.b_O"]
+                - state_dict[f"blocks.{l}.attn.b_O"].mean()
+            )  # b_O is [d_model]
+            if not config.attn_only:
+                state_dict[f"blocks.{l}.mlp.W_out"] = state_dict[
+                    f"blocks.{l}.mlp.W_out"
+                ] - state_dict[f"blocks.{l}.mlp.W_out"].mean(-1, keepdim=True)
+                state_dict[f"blocks.{l}.mlp.b_out"] = (
+                    state_dict[f"blocks.{l}.mlp.b_out"]
+                    - state_dict[f"blocks.{l}.mlp.b_out"].mean()
+                )
+        return state_dict
+
+    @staticmethod
+    def center_unembed(state_dict: Dict[str, torch.Tensor], config=None):
+        """Centers the unembedding weights W_U. This is done by subtracting the mean of the weights from the weights
+        themselves. This is done in-place. As softmax is translation invariant, this changes the logits but not the
+        log probs, and makes the model logits (slightly) more interpretable - when trying to understand how components
+        contribute to the logits, we'll be less misled by components that just add something to every logit.
+        """
+        state_dict["unembed.W_U"] = state_dict["unembed.W_U"] - state_dict[
+            "unembed.W_U"
+        ].mean(-1, keepdim=True)
+        state_dict["unembed.b_U"] = (
+            state_dict["unembed.b_U"] - state_dict["unembed.b_U"].mean()
+        )
+        return state_dict
 
     def set_tokenizer(self, tokenizer):
         """

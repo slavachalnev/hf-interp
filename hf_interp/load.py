@@ -952,6 +952,10 @@ def get_pretrained_state_dict(
             raise ValueError(
                 f"Loading weights from the architecture is not currently supported: {cfg.original_architecture}, generated from model name {cfg.model_name}. Feel free to open an issue on GitHub to request this feature."
             )
+        
+        # make sure unembed.b_U is in state_dict
+        if "unembed.b_U" not in state_dict:
+            state_dict["unembed.b_U"] = torch.zeros(state_dict["unembed.W_U"].shape[1])
 
         return state_dict
 
