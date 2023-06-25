@@ -707,6 +707,16 @@ class HookedTransformer(HookedRootModule):
             else True,  # As we manually add the BOS token
         )["input_ids"]
         return tokens
+    
+    def to_single_token(self, string):
+        """Maps a string that makes up a single token to the id for that token. Raises an error for strings that are
+        not a single token! If uncertain use to_tokens"""
+
+        # We use the to_tokens method, do not append a BOS token
+        token = self.to_tokens(string, prepend_bos=False).squeeze()
+        # If token shape is non-empty, raise error
+        assert not token.shape, f"Input string: {string} is not a single token!"
+        return token.item()
 
     def tokens_to_residual_directions(
         self,
