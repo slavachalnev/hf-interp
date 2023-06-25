@@ -1,6 +1,6 @@
 import logging
 from functools import lru_cache
-import os
+import tempfile
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, overload
 
 import einops
@@ -394,16 +394,19 @@ class HookedTransformer(HookedRootModule):
             official_model_name, config, hf_model, **kwargs
         )
 
-        print('hello')
-
-        return super().from_pretrained(
-            *model_args,
-            pretrained_model_name_or_path=None,
-            state_dict=state_dict,
-            # low_cpu_mem_usage=True,
-            config=config,
-            **kwargs
+        with tempfile.NamedTemporaryFile(delete=True) as tmp:
+            # Save the state dict to a temporary file
+            torch.save(state_dict, tmp.name)
+            # Load the model from the temporary file
+            model = super().from_pretrained(
+                tmp.name,
+                *model_args,
+                low_cpu_mem_usage=True,
+                config=config,
+                **kwargs
             )
+
+        return model
 
     def set_tokenizer(self, tokenizer):
         """
