@@ -1,5 +1,6 @@
+# This test is taken from Neel Nanda's Transformer Lens
+
 import gc
-import os
 
 import pytest
 import torch
@@ -99,7 +100,7 @@ def test_from_pretrained_no_processing(name, expected_loss):
     # is equivalent to using from_pretrained_no_processing
 
     model_ref = HookedTransformer.from_pretrained_no_processing(name)
-    model_ref_config = model_ref.cfg
+    model_ref_config = model_ref.config
     reff_loss = model_ref(text, return_type="loss")
     del model_ref
     model_override = HookedTransformer.from_pretrained(
@@ -107,15 +108,16 @@ def test_from_pretrained_no_processing(name, expected_loss):
         fold_ln=False,
         center_writing_weights=False,
         center_unembed=False,
-        refactor_factored_attn_matrices=False,
     )
-    assert model_ref_config == model_override.cfg
+    model_ref_config.__dict__.pop("_name_or_path")
+    model_override.config.__dict__.pop("_name_or_path")
+    assert model_ref_config.to_dict() == model_override.config.to_dict()
 
     if name != "redwood_attn_2l":  # TODO can't be loaded with from_pretrained
         # Do the converse check, i.e. check that overriding boolean flags in
         # from_pretrained_no_processing is equivalent to using from_pretrained
         model_ref = HookedTransformer.from_pretrained(name)
-        model_ref_config = model_ref.cfg
+        model_ref_config = model_ref.config
         reff_loss = model_ref(text, return_type="loss")
         del model_ref
         model_override = HookedTransformer.from_pretrained_no_processing(
@@ -123,9 +125,10 @@ def test_from_pretrained_no_processing(name, expected_loss):
             fold_ln=True,
             center_writing_weights=True,
             center_unembed=True,
-            refactor_factored_attn_matrices=False,
         )
-        assert model_ref_config == model_override.cfg
+        model_ref_config.__dict__.pop("_name_or_path")
+        model_override.config.__dict__.pop("_name_or_path")
+        assert model_ref_config.to_dict() == model_override.config.to_dict()
 
     # also check losses
     print(reff_loss.item())
@@ -135,7 +138,7 @@ def test_from_pretrained_no_processing(name, expected_loss):
 def test_from_pretrained_dtype():
     """Check that the parameter `torch_dtype` works"""
     model = HookedTransformer.from_pretrained("solu-1l", torch_dtype=torch.bfloat16)
-    assert model.W_K.dtype == torch.bfloat16
+    assert model.W_U.dtype == torch.bfloat16
 
 
 def test_from_pretrained_revision():
