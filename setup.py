@@ -12,6 +12,7 @@ setup(
         "torch",
         "transformers",
         "accelerate",
+        "datasets",
         "einops",
         "fancy_einsum",
         "tqdm",
