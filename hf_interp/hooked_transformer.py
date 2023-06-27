@@ -11,6 +11,8 @@ import tqdm.auto as tqdm
 from fancy_einsum import einsum
 from jaxtyping import Float, Int
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
+import accelerate
+from accelerate.hooks import remove_hook_from_module
 from typeguard import typeguard_ignore
 from typing_extensions import Literal
 
@@ -36,6 +38,7 @@ import hf_interp.load as loading
 # Note - activation cache is used with run_with_cache, past_key_value_caching is used for generation.
 from hf_interp.kv_caching import HookedTransformerKeyValueCache
 
+
 SingleLoss = Float[torch.Tensor, ""]  # Type alias for a single element tensor
 LossPerToken = Float[torch.Tensor, "batch pos-1"]
 Loss = Union[SingleLoss, LossPerToken]
@@ -58,6 +61,8 @@ class HookedTransformer(HookedRootModule):
     """
 
     # TODO: Add generate method.
+
+    _keep_in_fp32_modules: List[str] = ["LayerNorm", "LayerNormPre", "RMSNorm", "RMSNormPre"]
 
     def __init__(
         self,
@@ -138,7 +143,7 @@ class HookedTransformer(HookedRootModule):
 
         if self.config.init_weights:
             self.apply(self.init_weights)
-
+        
         # Gives each module a parameter with its name (relative to this root module)
         # Needed for HookPoints to work
         self.setup()
@@ -342,6 +347,27 @@ class HookedTransformer(HookedRootModule):
         else:
             return out, cache_dict
     
+    def to(self, *args, **kwargs):
+        device, dtype, non_blocking, convert_to_format = torch._C._nn._parse_to(*args, **kwargs)
+
+        if device is not None:
+            self.tie_weights()
+
+            if device == 'cpu':
+                device_map = {"": 'cpu'}
+            elif device == 'mps':
+                device_map = {"": 'mps'}
+            else:
+                device_map = accelerate.infer_auto_device_map(self, no_split_module_classes=self._no_split_modules())
+            
+            super().to('cpu')
+            remove_hook_from_module(self, recurse=True)
+
+            return accelerate.dispatch_model(self, device_map=device_map)
+
+        if dtype is not None:
+            return super().to(*args, **kwargs)
+    
     @classmethod
     def from_pretrained(
         cls,
@@ -361,6 +387,8 @@ class HookedTransformer(HookedRootModule):
         # TODO: check device properly
         if device == 'cpu':
             device_map = {"": 'cpu'}
+        elif device == 'mps':
+            device_map = {"": 'mps'}
 
         # Get the model name used in HuggingFace, rather than the alias.
         official_model_name = loading.get_official_model_name(model_name)
