@@ -62,6 +62,7 @@ class HookedTransformer(HookedRootModule):
 
     # TODO: Add generate method.
 
+    # TODO: Figure out why this class attribute is ignored when loading.
     _keep_in_fp32_modules: List[str] = ["LayerNorm", "LayerNormPre", "RMSNorm", "RMSNormPre"]
 
     def __init__(
@@ -427,7 +428,8 @@ class HookedTransformer(HookedRootModule):
         # Get the state dict of the model (ie a mapping of parameter names to tensors), processed to match the
         # HookedTransformer parameter names.
         state_dict = loading.get_pretrained_state_dict(
-            official_model_name, config, hf_model, **kwargs
+            official_model_name, config, hf_model,
+            # **kwargs # TODO: check if passing kwargs is needed. It breaks float16.
         )
 
         state_dict = cls.add_missing_keys(state_dict)
