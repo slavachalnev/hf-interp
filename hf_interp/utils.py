@@ -1,3 +1,5 @@
+# Util functions are copied from Neel Nanda's TransformerLens
+
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
 from jaxtyping import Float, Int
 
